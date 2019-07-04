@@ -11,6 +11,8 @@ type EvictCallback func(key interface{}, value interface{})
 // LRU implements a non-thread safe fixed size LRU cache
 type LRU struct {
 	size      int
+	cap      int64
+	
 	evictList *list.List
 	items     map[interface{}]*list.Element
 	onEvict   EvictCallback
@@ -23,12 +25,13 @@ type entry struct {
 }
 
 // NewLRU constructs an LRU of the given size
-func NewLRU(size int, onEvict EvictCallback) (*LRU, error) {
+func NewLRU(cap int, onEvict EvictCallback) (*LRU, error) {
 	if size <= 0 {
 		return nil, errors.New("Must provide a positive size")
 	}
 	c := &LRU{
-		size:      size,
+		size:     0,
+		cap:      cap,
 		evictList: list.New(),
 		items:     make(map[interface{}]*list.Element),
 		onEvict:   onEvict,
@@ -45,14 +48,15 @@ func (c *LRU) Purge() {
 		delete(c.items, k)
 	}
 	c.evictList.Init()
+	c.size = 0
 }
 
 // Add adds a value to the cache.  Returns true if an eviction occurred.
-func (c *LRU) Add(key, value interface{}) (evicted bool) {
+func (c *LRU) AddNX(key, value interface{}, size int64) (evicted bool) {
 	// Check for existing item
 	if ent, ok := c.items[key]; ok {
-		c.evictList.MoveToFront(ent)
-		ent.Value.(*entry).value = value
+// 		c.evictList.MoveToFront(ent)
+// 		ent.Value.(*entry).value = value
 		return false
 	}
 
@@ -60,8 +64,8 @@ func (c *LRU) Add(key, value interface{}) (evicted bool) {
 	ent := &entry{key, value}
 	entry := c.evictList.PushFront(ent)
 	c.items[key] = entry
-
-	evict := c.evictList.Len() > c.size
+	
+	evict := c.size + size > c.cap
 	// Verify size not exceeded
 	if evict {
 		c.removeOldest()
@@ -141,8 +145,8 @@ func (c *LRU) Keys() []interface{} {
 }
 
 // Len returns the number of items in the cache.
-func (c *LRU) Len() int {
-	return c.evictList.Len()
+func (c *LRU) size() int {
+	return c.size
 }
 
 // removeOldest removes the oldest item from the cache.
